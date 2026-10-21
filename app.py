@@ -1,30 +1,28 @@
 """
-抖音网页版反代 v4 - 修复视频播放
-重写JSON API响应中的视频/图片URL
+抖音移动端网页版反代 - 简单版
+m.douyin.com 比 www 版简单很多，视频加载更容易穿透
 """
 from flask import Flask, request, Response
 import requests
 import re
-import json
 import os
 
 app = Flask(__name__)
 
-UPSTREAM = "https://www.douyin.com"
+UPSTREAM = "https://m.douyin.com"
 
-# 匹配所有抖音相关域名
 PATTERN = re.compile(
-    r'https?://[\w.-]+\.(?:douyin\.com|douyinpic\.com|douyinvod\.com|douyinstatic\.com|snssdk\.com|bytedance\.com|byteimg\.com|douyincdn\.com)'
+    r'https?://[\w.-]+\.(?:douyin\.com|douyinpic\.com|douyinvod\.com|douyinstatic\.com|snssdk\.com|bytedance\.com|byteimg\.com|douyincdn\.com|amemv\.com|iesdouyin\.com)'
 )
 
 def to_proxy(match):
     return "/go/" + match.group(0)
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
     "Accept": "*/*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "Referer": "https://www.douyin.com/",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+    "Referer": "https://m.douyin.com/",
 }
 
 @app.route("/", defaults={"path": ""})
@@ -54,7 +52,6 @@ def proxy(path):
 
     content_type = resp.headers.get("Content-Type", "")
 
-    # 处理重定向
     if resp.status_code in (301, 302, 303, 307, 308):
         location = resp.headers.get("Location", "")
         location = PATTERN.sub(to_proxy, location)
@@ -63,17 +60,13 @@ def proxy(path):
     excluded = ["content-encoding", "transfer-encoding", "content-length", "content-security-policy"]
     resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in excluded}
 
-    # HTML页面
     if "text/html" in content_type:
         body = resp.text
         body = PATTERN.sub(to_proxy, body)
         inject = """<script>
 (function(){
-  var re=/https?:\\/\\/[\\w.-]+\\.(?:douyin\\.com|douyinpic\\.com|douyinvod\\.com|douyinstatic\\.com|snssdk\\.com|bytedance\\.com|byteimg\\.com|douyincdn\\.com)/g;
-  function rw(u){
-    if(typeof u!=='string')return u;
-    return u.replace(re,function(m){return '/go/'+m;});
-  }
+  var re=/https?:\\/\\/[\\w.-]+\\.(?:douyin\\.com|douyinpic\\.com|douyinvod\\.com|douyinstatic\\.com|snssdk\\.com|bytedance\\.com|byteimg\\.com|douyincdn\\.com|amemv\\.com|iesdouyin\\.com)/g;
+  function rw(u){if(typeof u!=='string')return u;return u.replace(re,function(m){return '/go/'+m;});}
   var of=window.fetch;
   window.fetch=function(){
     if(arguments[0]&&typeof arguments[0]==='string')arguments[0]=rw(arguments[0]);
@@ -82,41 +75,22 @@ def proxy(path):
   };
   var ox=XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open=function(m,u){return ox.call(this,m,rw(u));};
-  // 拦截动态创建的video/img/script标签
-  function fixEl(el){
-    if(el.src&&re.test(el.src))el.src=rw(el.src);
-    if(el.href&&re.test(el.href))el.href=rw(el.href);
-  }
-  var obs=new MutationObserver(function(muts){
-    muts.forEach(function(m){
-      m.addedNodes.forEach(function(n){
-        if(n.nodeType===1){
-          fixEl(n);
-          n.querySelectorAll&&n.querySelectorAll('img,video,script,source,link').forEach(fixEl);
-        }
-      });
-    });
-  });
-  obs.observe(document.documentElement,{childList:true,subtree:true});
 })();
 </script>"""
         body = body.replace("</head>", inject + "</head>")
         resp_headers["Content-Type"] = "text/html; charset=utf-8"
         return Response(body, status=resp.status_code, headers=resp_headers)
 
-    # JSON API响应 - 重写里面的视频/图片URL
     if "json" in content_type:
         body = resp.text
         body = PATTERN.sub(to_proxy, body)
         return Response(body, status=resp.status_code, headers=resp_headers)
 
-    # CSS/JS文件
     if "text/css" in content_type or "javascript" in content_type:
         body = resp.text
         body = PATTERN.sub(to_proxy, body)
         return Response(body, status=resp.status_code, headers=resp_headers)
 
-    # 图片/视频/其他二进制直接透传
     return Response(resp.content, status=resp.status_code, headers=resp_headers)
 
 
